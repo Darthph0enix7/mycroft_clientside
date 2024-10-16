@@ -37,6 +37,8 @@ import wakeword_detection
 import process_command
 import activity_monitoring
 
+from faster_whisper import WhisperModel
+
 load_dotenv()
 
 encryption_key_cli = os.environ.get('ENCRYPTION_KEY_CLI').encode()
@@ -47,7 +49,6 @@ def decrypt_client_secret():
     print("Starting decryption of client_secret.json.encrypted")
     with open("service_account.json.encrypted", "rb") as encrypted_file:
         encrypted_data = encrypted_file.read()
-        print(f"Encrypted data: {encrypted_data[:100]}...")  # Print first 100 bytes for brevity
 
     fernet = Fernet(encryption_key_cli)
     decrypted_data = fernet.decrypt(encrypted_data)
@@ -96,23 +97,42 @@ class RealtimeDB:
         except Exception as e:
             print(f'Error writing to Firebase: {e}')
 
+def check_torch_and_gpu():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return True, "cuda"
+        else:
+            return True, "cpu"
+    except ImportError:
+        return False, "cpu"
+
+def initialize_model():
+    torch_installed, device = check_torch_and_gpu()
+
+    if torch_installed and device == "cuda":
+        model_size = "deepdml/faster-whisper-large-v3-turbo-ct2"
+        compute_type = "float16"
+    else:
+        model_size = "base"
+        compute_type = "int8"
+
+    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    return model
 
 if __name__ == "__main__":
-
     # Initialize Firebase Admin SDK with credentials
     cred = credentials.Certificate("firebase_adminsdk.json")
     firebase_admin.initialize_app(cred, firebase_config)
-    
+
+    model = initialize_model()
     queue = Queue()
 
-    p1 = Process(target=wakeword_detection.listen_for_wakeword, args=(queue,))
-    p2 = Process(target=process_command.process_command, args=(queue,))
+    p1 = Process(target=wakeword_detection.listen_for_wakeword)
     p3 = Process(target=activity_monitoring.monitor_activity)
 
     p1.start()
-    p2.start()
     p3.start()
 
     p1.join()
-    p2.join()
     p3.join()

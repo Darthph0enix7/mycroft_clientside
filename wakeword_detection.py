@@ -1,12 +1,11 @@
 import time
 import numpy as np
-from multiprocessing import Queue
 import openwakeword
 from openwakeword.model import Model
 import pyaudio
-import warnings
 import threading
-import speech_recognition as sr
+import wave
+from faster_whisper import WhisperModel
 
 openwakeword.utils.download_models()
 
@@ -18,7 +17,7 @@ CHUNK_DURATION_MS = 30  # Duration of a chunk in milliseconds
 CHUNK_SIZE = int(RATE * CHUNK_DURATION_MS / 1000)  # Number of samples per chunk
 
 # Wake word detection parameters
-THRESHOLD = 0.1  # Confidence threshold for wake word detection
+THRESHOLD = 0.5  # Increased confidence threshold for wake word detection
 INFERENCE_FRAMEWORK = 'onnx'
 MODEL_PATHS = ['nexus.onnx', 'jarvis.onnx', 'mycroft.onnx']
 
@@ -27,101 +26,205 @@ ENERGY_THRESHOLD = 1500  # Energy level for speech detection
 PAUSE_THRESHOLD = 1.5  # Seconds of silence before considering speech complete
 
 # Other parameters
-COOLDOWN = 1  # Seconds to wait before detecting another wake word
+COOLDOWN = 5  # Increased seconds to wait before detecting another wake word
 
-# Global variable for last detection time
+# State machine states
+IDLE = "IDLE"
+RECORDING = "RECORDING"
+PROCESSING = "PROCESSING"
+COOLDOWN_STATE = "COOLDOWN"
+
+# Global variables
+current_state = IDLE
 last_detection_time = 0
+
+state_lock = threading.Lock()  # Lock to control state changes
+
+
+def check_torch_and_gpu():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return True, "cuda"
+        else:
+            return True, "cpu"
+    except ImportError:
+        return False, "cpu"
+
+
+def initialize_model():
+    torch_installed, device = check_torch_and_gpu()
+    print(f"Using device: {device}")
+    if torch_installed and device == "cuda":
+        model_size = "deepdml/faster-whisper-large-v3-turbo-ct2"
+        compute_type = "float16"
+    else:
+        model_size = "base"
+        compute_type = "int8"
+
+    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    return model
+
+
+def transcribe_audio(audio_file_path, model):
+    segments, info = model.transcribe(audio=audio_file_path, vad_filter=True,
+                                      vad_parameters=dict(min_silence_duration_ms=500))
+
+    print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+
+    transcription = ""
+    for segment in segments:
+        transcription += "[%.2fs -> %.2fs] %s\n" % (segment.start, segment.end, segment.text)
+
+    return transcription
+
 
 def record_audio(file_path):
     """
-    Record audio from the microphone using speech_recognition after wake word detection.
+    Record audio from the microphone for a fixed duration of 5 seconds.
     """
-    recognizer = sr.Recognizer()
-    recognizer.energy_threshold = ENERGY_THRESHOLD
-    recognizer.pause_threshold = PAUSE_THRESHOLD
+    audio = pyaudio.PyAudio()
+    stream = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True,
+                        frames_per_buffer=CHUNK_SIZE)
 
-    # Use the same mic as in wake word detection
-    with sr.Microphone() as source:
-        print("Adjusting for ambient noise...")
-        recognizer.adjust_for_ambient_noise(source, duration=0.7)
-        print("Recording...")
-        audio_data = recognizer.listen(source)
-        print("Recording complete.")
+    print("Recording for 5 seconds...")
+    frames = []
 
-        # Save the audio data to a WAV file
-        with open(file_path, "wb") as f:
-            f.write(audio_data.get_wav_data())
+    for _ in range(0, int(RATE / CHUNK_SIZE * 5)):
+        data = stream.read(CHUNK_SIZE)
+        frames.append(data)
 
-def detection_thread(mic_stream, stop_event, queue):
+    print("Recording complete.")
+
+    # Stop and close the stream
+    stream.stop_stream()
+    stream.close()
+    audio.terminate()
+
+    # Save the recorded data to a WAV file
+    with wave.open(file_path, 'wb') as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(audio.get_sample_size(FORMAT))
+        wf.setframerate(RATE)
+        wf.writeframes(b''.join(frames))
+
+
+def detection_thread(stop_event, model, lock):
     """
     Thread function for wake word detection.
     """
-    global last_detection_time
-    wakeword_detected = False
+    global last_detection_time, current_state
 
-    print("\n\nListening for wakewords...\n")
     while not stop_event.is_set():
+        with state_lock:
+            if current_state != IDLE:
+                continue
+
         try:
-            mic_audio = np.frombuffer(mic_stream.read(CHUNK_SIZE), dtype=np.int16)
+            # Set up microphone stream for wake word detection
+            audio = pyaudio.PyAudio()
+            mic_stream = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True,
+                                    frames_per_buffer=CHUNK_SIZE)
 
-            # Feed to openWakeWord model
-            prediction = owwModel.predict(mic_audio)
+            print("\n\nListening for wakewords...\n")
 
-            # Check for any wakeword detection
-            detected_models = [mdl for mdl in prediction.keys() if prediction[mdl] >= THRESHOLD]
-            if detected_models and not wakeword_detected and (time.time() - last_detection_time) >= COOLDOWN:
-                last_detection_time = time.time()
-                wakeword_detected = True  # Prevent multiple triggers
+            while not stop_event.is_set():
+                with state_lock:
+                    if current_state != IDLE:
+                        break  # Stop detection if we are no longer in IDLE state
 
-                # Use the first detected model
-                mdl = detected_models[0]
+                mic_audio = np.frombuffer(mic_stream.read(CHUNK_SIZE), dtype=np.int16)
 
-                print(f'Detected activation from "{mdl}" model!')
+                # Feed to openWakeWord model
+                prediction = owwModel.predict(mic_audio)
 
-                # Record audio after detecting the wake word
-                audio_file_path = "input.wav"
-                record_audio(audio_file_path)
+                # Check for any wakeword detection
+                detected_models = [mdl for mdl in prediction.keys() if prediction[mdl] >= THRESHOLD]
+                if detected_models and (time.time() - last_detection_time) >= COOLDOWN:
+                    with state_lock:
+                        if current_state == IDLE:
+                            last_detection_time = time.time()
+                            current_state = RECORDING
 
-                # Signal the process_command script via the queue
-                queue.put((mdl, audio_file_path))
+                            # Use the first detected model
+                            mdl = detected_models[0]
+                            print(f'Detected activation from "{mdl}" model!')
 
-            # Reset wakeword_detected after cooldown
-            if (time.time() - last_detection_time) >= COOLDOWN:
-                wakeword_detected = False
+                            # Acquire lock to ensure no overlapping recordings
+                            with lock:
+                                # Stop the mic stream while recording
+                                mic_stream.stop_stream()
+                                mic_stream.close()
+
+                                # Record audio after detecting the wake word
+                                audio_file_path = "input.wav"
+                                record_audio(audio_file_path)
+
+                                current_state = PROCESSING
+
+                                try:
+                                    # Perform transcription
+                                    transcription = transcribe_audio(audio_file_path, model)
+                                    print("Transcription:\n", transcription)
+                                except Exception as e:
+                                    print(f"An error occurred during transcription: {e}")
+
+                                # Move to cooldown state
+                                current_state = COOLDOWN_STATE
+
+                            # Wait for cooldown period
+                            time.sleep(COOLDOWN)
+
+                            # Transition back to IDLE state after cooldown
+                            with state_lock:
+                                current_state = IDLE
+
+            # Ensure microphone stream is closed properly after leaving the loop
+            if mic_stream is not None:
+                mic_stream.stop_stream()
+                mic_stream.close()
 
         except Exception as e:
             print(f"An error occurred during audio processing: {e}")
-            # Assume mic is disconnected
             stop_event.set()
             break
+
+        finally:
+            # Ensure that audio resources are properly cleaned up
+            if 'audio' in locals():
+                audio.terminate()
+
 
 owwModel = Model(
     wakeword_models=MODEL_PATHS,
     inference_framework=INFERENCE_FRAMEWORK
 )
 
-def listen_for_wakeword(queue):
-    audio = pyaudio.PyAudio()
-    mic_index = None  # Use default microphone
 
-    mic_stream = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True,
-                            input_device_index=mic_index, frames_per_buffer=CHUNK_SIZE)
-
+def listen_for_wakeword():
     # Create an event to control the detection thread
     stop_event = threading.Event()
 
+    # Initialize the transcription model
+    model = initialize_model()
+
+    # Create a lock for recording and transcription
+    lock = threading.Lock()
+
     # Start the detection thread
-    detection_thread_instance = threading.Thread(target=detection_thread, args=(mic_stream, stop_event, queue))
+    detection_thread_instance = threading.Thread(target=detection_thread, args=(stop_event, model, lock))
     detection_thread_instance.start()
 
-    # Wait for the detection thread to finish
-    detection_thread_instance.join()
+    try:
+        # Wait for the detection thread to finish
+        detection_thread_instance.join()
+    except KeyboardInterrupt:
+        print("Interrupted by user. Stopping...")
+        stop_event.set()
+        detection_thread_instance.join()
 
-    # When the detection thread finishes, it means the mic was disconnected
     print("Microphone disconnected. Stopping wake word detection.")
-    mic_stream.close()
-    audio.terminate()
+
 
 if __name__ == "__main__":
-    queue = Queue()
-    listen_for_wakeword(queue)
+    listen_for_wakeword()

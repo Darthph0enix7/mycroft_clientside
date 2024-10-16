@@ -1,5 +1,6 @@
 import os
 import threading
+import json
 import time
 import socket
 import subprocess
@@ -11,19 +12,59 @@ from pynput import keyboard, mouse
 import pyautogui  # For taking screenshots
 import platform
 import warnings
+from cryptography.fernet import Fernet
+from dotenv import load_dotenv
 
-# Initialize Firebase Admin SDK
-cred = credentials.Certificate("mycroft-discord-bot-firebase-adminsdk-j8svf-c54e12e978.json")
-firebase_admin.initialize_app(cred, {
-    'apiKey': "AIzaSyBV7r0uBwLocb5YpD5AQgAU73DkNkC00rw",
-    'authDomain': "mycroft-discord-bot.firebaseapp.com",
-    'databaseURL': "https://mycroft-discord-bot-default-rtdb.europe-west1.firebasedatabase.app",
-    'projectId': "mycroft-discord-bot",
-    'storageBucket': "mycroft-discord-bot.appspot.com",
-    'messagingSenderId': "1057247781531",
-    'appId': "1:1057247781531:web:64463428543ed092625c3e",
-    'measurementId': "G-6X8CBBJPHJ"
-})
+load_dotenv()
+
+encryption_key_cli = os.environ.get('ENCRYPTION_KEY_CLI').encode()
+encryption_key_config = os.environ.get('ENCRYPTION_KEY_CONFIG').encode()
+encryption_key_adminsdk = os.environ.get('ENCRYPTION_KEY_ADMINSDK').encode()
+
+def decrypt_client_secret():
+    print("Starting decryption of client_secret.json.encrypted")
+    with open("service_account.json.encrypted", "rb") as encrypted_file:
+        encrypted_data = encrypted_file.read()
+
+    fernet = Fernet(encryption_key_cli)
+    decrypted_data = fernet.decrypt(encrypted_data)
+
+    with open("service_account.json", "wb") as decrypted_file:
+        decrypted_file.write(decrypted_data)
+
+def decrypt_firebase_config():
+    with open("firebase_config.json.encrypted", "rb") as encrypted_file:
+        encrypted_data = encrypted_file.read()
+
+    fernet = Fernet(encryption_key_config)
+    decrypted_data = fernet.decrypt(encrypted_data)
+
+    with open("firebase_config.json", "wb") as decrypted_file:
+        decrypted_file.write(decrypted_data)
+
+def decrypt_adminsdk():
+    print("Starting decryption of client_secret.json.encrypted")
+    with open("firebase_adminsdk.json.encrypted", "rb") as encrypted_file:
+        encrypted_data = encrypted_file.read()
+
+    fernet = Fernet(encryption_key_adminsdk)
+    decrypted_data = fernet.decrypt(encrypted_data)
+
+    with open("firebase_adminsdk.json", "wb") as decrypted_file:
+        decrypted_file.write(decrypted_data)
+
+decrypt_client_secret()
+decrypt_firebase_config()
+decrypt_adminsdk()
+
+
+
+# Load Firebase configuration from JSON file
+with open('firebase_config.json') as config_file:
+    firebase_config = json.load(config_file)
+
+cred = credentials.Certificate("firebase_adminsdk.json")
+firebase_admin.initialize_app(cred, firebase_config)
 
 app = Flask(__name__)
 
@@ -188,6 +229,7 @@ def monitor_activity():
 def run_wakeword_detection():
     import time
     import threading
+    import platform
     if platform.system() == "Windows":
         import pyaudiowpatch as pyaudio
     else:
@@ -197,6 +239,7 @@ def run_wakeword_detection():
     from plyer import notification
     import requests
     import speech_recognition as sr
+    import warnings
 
     # Suppress specific warnings
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -215,16 +258,16 @@ def run_wakeword_detection():
     CHUNK_SIZE = int(RATE * CHUNK_DURATION_MS / 1000)  # Number of samples per chunk
 
     # Wake word detection parameters
-    THRESHOLD = 0.6  # Confidence threshold for wake word detection
+    THRESHOLD = 0.1  # Confidence threshold for wake word detection
     INFERENCE_FRAMEWORK = 'onnx'
-    MODEL_PATHS = ['hey_nexus.onnx', 'hey_jarvis.onnx', 'mycroft.onnx']
+    MODEL_PATHS = ['nexus.onnx', 'jarvis.onnx', 'mycroft.onnx']
 
     # Recording parameters
     ENERGY_THRESHOLD = 2000  # Energy level for speech detection
     PAUSE_THRESHOLD = 2  # Seconds of silence before considering speech complete
 
     # Server configuration
-    SERVER_URL = "https://rolling-essa-enpoi-12c37b5e.koyeb.app/send_message"
+    SERVER_URL = "https://rolling-essa-enpoi-12c37b5e.koyeb.app/send"
     SERVER_TOKEN = "Denemeler123."
 
     # Other parameters
@@ -303,30 +346,13 @@ def run_wakeword_detection():
             with open(file_path, "wb") as f:
                 f.write(audio_data.get_wav_data())
 
-        # Transcribe the audio using your API
-        transcription = transcribe_audio(file_path)
+        # Placeholder for transcription
+        transcription = "This is a placeholder transcription. answer with ok"
         # Print the transcribed text
         print(f"Transcription: {transcription}")
 
         # Send the transcription to the server
         send_transcription_to_server(transcription, bot_key)
-
-
-    def transcribe_audio(file_path):
-        """
-        Transcribe the audio file using your local transcription API.
-        """
-        url = "http://localhost:4444/v1/transcriptions"
-        files = {'file': open(file_path, 'rb')}
-        data = {
-            'model': 'base',
-            'vad_filter': False,
-            'response_format': 'text',
-            'timestamp_granularities': 'segment'
-        }
-        response = requests.post(url, files=files, data=data)
-        transcription_result = response.json()
-        return transcription_result.get('text', '')
 
     def detection_thread(mic_stream, mic_index, stop_event):
         """
@@ -362,7 +388,7 @@ def run_wakeword_detection():
                     # Determine bot_key based on detected model
                     if mdl == 'mycroft':
                         bot_key = 'mycroft'
-                    elif mdl == 'hey_jarvis':
+                    elif mdl == 'jarvis':
                         bot_key = 'jarvis'
                     else:
                         bot_key = None
@@ -399,10 +425,9 @@ def run_wakeword_detection():
                 audio.terminate()
                 audio = pyaudio.PyAudio()
                 mic_index = get_device_index(audio, MIC_NAME)
-            print("Microphone connected. Initializing wake word detection...")
 
         mic_stream = initialize_mic_stream(audio, mic_index, FORMAT, CHANNELS, RATE, CHUNK_SIZE)
-        if mic_stream is None:
+        if (mic_stream is None):
             # Could not initialize mic stream, go back to waiting
             audio.terminate()
             continue
@@ -427,36 +452,16 @@ def run_wakeword_detection():
         time.sleep(5)
 
 if __name__ == '__main__':
-    # Start the transcription server at the start
-    def start_transcription_server():
-        print("Starting transcription server...")
-        # Start the transcription server
-        transcription_process = subprocess.Popen(['python', r'FastWhisperAPI\\main.py'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # Wait for the server to start
-        time.sleep(5)
-        if is_transcription_server_running():
-            print("Transcription server started successfully.")
-        else:
-            print("Failed to start transcription server.")
-
-    def is_transcription_server_running():
-        try:
-            response = requests.get('http://localhost:4444')
-            return True
-        except requests.exceptions.ConnectionError:
-            return False
-
-    # Start the transcription server
-    if not is_transcription_server_running():
-        start_transcription_server()
+    # Check the operating system
+    if platform.system() == 'Windows':
+        lt_command = [r'C:\Users\kalin\AppData\Roaming\npm\lt.cmd', '--port', '5000']  # Command for Windows
     else:
-        print("Transcription server is already running.")
+        lt_command = ['lt', '--port', '5000']  # Command for Linux
 
     # Start Localtunnel
-    lt_path = r'C:\Users\kalin\AppData\Roaming\npm\lt.cmd'  # Replace with the actual path to lt
-    lt_process = subprocess.Popen([lt_path, '--port', '5000'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    lt_process = subprocess.Popen(lt_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(2)  # Give Localtunnel some time to establish the connection
-
+    print("Establishing Localtunnel connection...") 
     # Read the public URL from Localtunnel output
     public_url = None
     while True:
