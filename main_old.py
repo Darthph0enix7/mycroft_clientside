@@ -248,7 +248,7 @@ def run_wakeword_detection():
     # === Configurable Parameters ===
 
     # Microphone settings
-    MIC_NAME = "Microphone (MFiIAP2Device)"  # Name of the microphone to use
+    MIC_NAME = "default"  # Name of the microphone to use
 
     # Audio parameters for wake word detection
     FORMAT = pyaudio.paInt16
@@ -413,7 +413,17 @@ def run_wakeword_detection():
         wakeword_models=MODEL_PATHS,
         inference_framework=INFERENCE_FRAMEWORK
     )
+    def list_available_mics():
+        audio = pyaudio.PyAudio()
+        device_count = audio.get_device_count()
+        print("Available microphones:")
+        for i in range(device_count):
+            device_info = audio.get_device_info_by_index(i)
+            print(f"Index {i}: {device_info['name']}")
+        audio.terminate()
+    list_available_mics()
 
+    # Existing logic to select the microphone based on MIC_NAME
     while True:
         audio = pyaudio.PyAudio()
 
@@ -427,7 +437,7 @@ def run_wakeword_detection():
                 mic_index = get_device_index(audio, MIC_NAME)
 
         mic_stream = initialize_mic_stream(audio, mic_index, FORMAT, CHANNELS, RATE, CHUNK_SIZE)
-        if (mic_stream is None):
+        if mic_stream is None:
             # Could not initialize mic stream, go back to waiting
             audio.terminate()
             continue
@@ -452,45 +462,17 @@ def run_wakeword_detection():
         time.sleep(5)
 
 if __name__ == '__main__':
-    # Check the operating system
-    if platform.system() == 'Windows':
-        lt_command = [r'C:\Users\kalin\AppData\Roaming\npm\lt.cmd', '--port', '5000']  # Command for Windows
-    else:
-        lt_command = ['lt', '--port', '5000']  # Command for Linux
 
-    # Start Localtunnel
-    lt_process = subprocess.Popen(lt_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(2)  # Give Localtunnel some time to establish the connection
-    print("Establishing Localtunnel connection...") 
-    # Read the public URL from Localtunnel output
-    public_url = None
+
+    
+    # Run the Flask app in a separate thread
+    threading.Thread(target=app.run, kwargs={'port':5000, 'host':'0.0.0.0'}).start()
+    
+    # Start the wakeword detection code in a separate thread
+    threading.Thread(target=run_wakeword_detection).start()
+    
+    # Keep the main thread alive
     while True:
-        output = lt_process.stdout.readline().decode('utf-8').strip()
-        if 'your url is:' in output:
-            public_url = output.split(' ')[-1]
-            break
-
-    if public_url:
-        print(f"Ingress established at {public_url}")
-        
-        # Update Firebase with the public URL
-        device_name = socket.gethostname()
-        update_public_url(device_name, public_url)
-        
-        # Run the monitor_activity function in a separate thread
-        threading.Thread(target=monitor_activity).start()
-        
-        # Set public_url as a global variable
-        globals()['public_url'] = public_url
-        
-        # Run the Flask app in a separate thread
-        threading.Thread(target=app.run, kwargs={'port':5000, 'host':'0.0.0.0'}).start()
-        
-        # Start the wakeword detection code in a separate thread
-        threading.Thread(target=run_wakeword_detection).start()
-        
-        # Keep the main thread alive
-        while True:
-            time.sleep(1)
+        time.sleep(1)
     else:
         print("Failed to establish Localtunnel connection")
