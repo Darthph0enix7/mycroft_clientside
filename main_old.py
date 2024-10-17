@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 import json
 import time
@@ -67,6 +68,10 @@ cred = credentials.Certificate("firebase_adminsdk.json")
 firebase_admin.initialize_app(cred, firebase_config)
 
 app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Server running"
 
 # Firebase Realtime Database interaction
 class RealtimeDB:
@@ -352,7 +357,8 @@ def run_wakeword_detection():
         print(f"Transcription: {transcription}")
 
         # Send the transcription to the server
-        send_transcription_to_server(transcription, bot_key)
+        #send_transcription_to_server(transcription, bot_key)
+        print("Transcription sent to server.")  
 
     def detection_thread(mic_stream, mic_index, stop_event):
         """
@@ -461,18 +467,44 @@ def run_wakeword_detection():
         # Wait a bit before retrying
         time.sleep(5)
 
+def extract_public_url_from_conf(file_path):
+    with open(file_path, 'r') as file:
+        content = file.read()
+        match = re.search(r'You can now access http://0.0.0.0:5000 on (https://\S+)', content)
+        if match:
+            return match.group(1)
+    return None
+
 if __name__ == '__main__':
+    # Start the tunnel using curl and wg-quick
+    tunnel_command = "curl https://tunnel.pyjam.as/5000 > tunnel.conf && wg-quick up ./tunnel.conf"
+    subprocess.run(tunnel_command, shell=True)
+    time.sleep(2)  # Give the tunnel some time to establish the connection
 
+    # Extract the public URL from the tunnel.conf file
+    public_url = extract_public_url_from_conf('tunnel.conf')
 
-    
-    # Run the Flask app in a separate thread
-    threading.Thread(target=app.run, kwargs={'port':5000, 'host':'0.0.0.0'}).start()
-    
-    # Start the wakeword detection code in a separate thread
-    threading.Thread(target=run_wakeword_detection).start()
-    
-    # Keep the main thread alive
-    while True:
-        time.sleep(1)
+    if public_url:
+        print(f"Ingress established at {public_url}")
+        
+        # Update Firebase with the public URL
+        device_name = socket.gethostname()
+        update_public_url(device_name, public_url)
+        
+        # Run the monitor_activity function in a separate thread
+        threading.Thread(target=monitor_activity).start()
+        
+        # Set public_url as a global variable
+        globals()['public_url'] = public_url
+        
+        # Run the Flask app in a separate thread
+        threading.Thread(target=app.run, kwargs={'port':5000, 'host':'0.0.0.0'}).start()
+        
+        # Start the wakeword detection code in a separate thread
+        threading.Thread(target=run_wakeword_detection).start()
+        
+        # Keep the main thread alive
+        while True:
+            time.sleep(1)
     else:
-        print("Failed to establish Localtunnel connection")
+        print("Failed to establish tunnel connection")
