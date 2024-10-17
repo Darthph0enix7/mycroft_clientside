@@ -1,18 +1,39 @@
-from faster_whisper import WhisperModel
-import torch
+import time
+import socket
+from pynput import keyboard, mouse
 
-model_size = "base"
+def monitor_activity():
+    global last_activity_time, device_name, activity_detected
 
-# Run on GPU with FP16
-model = WhisperModel("deepdml/faster-whisper-large-v3-turbo-ct2", device="cuda", compute_type="float16")
+    last_activity_time = time.time()
+    activity_detected = False
 
-#model = WhisperModel("deepdml/faster-whisper-large-v3-turbo-ct2", device="cuda", compute_type="int8_float16")
-# or run on CPU with INT8
-# model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    def on_activity(activity_type):
+        global last_activity_time, activity_detected
+        last_activity_time = time.time()
+        activity_detected = True
+        print(f'Activity detected: {activity_type}')
 
-segments, info = model.transcribe(audio="input.wav", vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500))
+    # Set up keyboard listener
+    keyboard_listener = keyboard.Listener(on_press=lambda key: on_activity('keyboard'))
+    keyboard_listener.start()
 
-print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+    # Set up mouse listener
+    mouse_listener = mouse.Listener(
+        on_move=lambda x, y: on_activity('mouse_move'),
+        on_click=lambda x, y, button, pressed: on_activity('mouse_click'),
+        on_scroll=lambda x, y, dx, dy: on_activity('mouse_scroll')
+    )
+    mouse_listener.start()
 
-for segment in segments:
-    print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
+    device_name = socket.gethostname()
+
+    while True:
+        current_time = time.time()
+        if activity_detected and (current_time - last_activity_time) < 5:
+            print(f'Active device: {device_name}')
+            activity_detected = False
+        time.sleep(2)
+
+if __name__ == "__main__":
+    monitor_activity()
