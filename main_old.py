@@ -243,11 +243,14 @@ def run_wakeword_detection():
     else:
         import pyaudio
     import numpy as np
+    import openwakeword
     from openwakeword.model import Model
     from plyer import notification
     import requests
     import speech_recognition as sr
     import warnings
+    
+    openwakeword.utils.download_models()
 
     # Microphone settings
     MIC_NAME = "default"  # Name of the microphone to use
@@ -432,6 +435,8 @@ def run_wakeword_detection():
                         bot_key = 'mycroft'
                     elif mdl == 'jarvis':
                         bot_key = 'jarvis'
+                    elif mdl == 'nexus':
+                        bot_key = 'nexus'
                     else:
                         bot_key = None
 

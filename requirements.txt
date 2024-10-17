@@ -1,0 +1,13 @@
+firebase-admin
+flask
+pynput==1.6.8
+pyautogui
+dotenv
+python-dotenv
+faster-whisper
+# conda install anaconda::pyaudio
+openwakeword
+plyer
+SpeechRecognition
+nvidia-cublas-cu12 # some manual installation required
+nvidia-cudnn-cu12
