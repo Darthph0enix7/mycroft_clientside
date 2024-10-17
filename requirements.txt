@@ -9,5 +9,3 @@ faster-whisper
 openwakeword
 plyer
 SpeechRecognition
-nvidia-cublas-cu12 # some manual installation required
-nvidia-cudnn-cu12

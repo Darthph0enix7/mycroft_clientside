@@ -26,7 +26,6 @@ encryption_key_config = os.environ.get('ENCRYPTION_KEY_CONFIG').encode()
 encryption_key_adminsdk = os.environ.get('ENCRYPTION_KEY_ADMINSDK').encode()
 
 def decrypt_client_secret():
-    print("Starting decryption of client_secret.json.encrypted")
     with open("service_account.json.encrypted", "rb") as encrypted_file:
         encrypted_data = encrypted_file.read()
 
@@ -47,7 +46,6 @@ def decrypt_firebase_config():
         decrypted_file.write(decrypted_data)
 
 def decrypt_adminsdk():
-    print("Starting decryption of client_secret.json.encrypted")
     with open("firebase_adminsdk.json.encrypted", "rb") as encrypted_file:
         encrypted_data = encrypted_file.read()
 
