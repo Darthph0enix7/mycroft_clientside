@@ -16,6 +16,9 @@ import warnings
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
+from faster_whisper import WhisperModel
+
+
 load_dotenv()
 
 encryption_key_cli = os.environ.get('ENCRYPTION_KEY_CLI').encode()
@@ -246,12 +249,6 @@ def run_wakeword_detection():
     import speech_recognition as sr
     import warnings
 
-    # Suppress specific warnings
-    warnings.filterwarnings("ignore", category=FutureWarning)
-    warnings.filterwarnings("ignore", category=UserWarning)
-
-    # === Configurable Parameters ===
-
     # Microphone settings
     MIC_NAME = "default"  # Name of the microphone to use
 
@@ -277,6 +274,7 @@ def run_wakeword_detection():
 
     # Other parameters
     COOLDOWN = 1  # Seconds to wait before detecting another wake word
+
 
     def get_device_index(audio, device_name):
         """
@@ -331,7 +329,44 @@ def run_wakeword_detection():
         except Exception as e:
             print(f"Error sending transcription to server for {bot_key}: {e}")
 
-    def record_audio(file_path, mic_index, bot_key):
+    def check_torch_and_gpu():
+        try:
+            import torch
+            if torch.cuda.is_available():
+                print("CUDA is available.")
+                return True, "cuda"
+            else:
+                print("CUDA is not available.")
+                return True, "cpu"
+        except ImportError:
+            return False, "cpu"
+
+    def initialize_model():
+        torch_installed, device = check_torch_and_gpu()
+        print(f"Using device: {device}")
+        if torch_installed and device == "cuda":
+            model_size = "deepdml/faster-whisper-large-v3-turbo-ct2"
+            compute_type = "float16"
+        else:
+            model_size = "base"
+            compute_type = "int8"
+
+        model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        return model
+
+    def transcribe_audio(audio_file_path, model):
+        segments, info = model.transcribe(audio=audio_file_path, vad_filter=True,
+                                        vad_parameters=dict(min_silence_duration_ms=500))
+
+        print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+
+        transcription = ""
+        for segment in segments:
+            transcription += "[%.2fs -> %.2fs] %s\n" % (segment.start, segment.end, segment.text)
+
+        return transcription
+
+    def record_audio(file_path, mic_index, bot_key, model):
         """
         Record audio from the microphone using speech_recognition.
         """
@@ -351,14 +386,15 @@ def run_wakeword_detection():
             with open(file_path, "wb") as f:
                 f.write(audio_data.get_wav_data())
 
-        # Placeholder for transcription
-        transcription = "This is a placeholder transcription. answer with ok"
+        # Transcribe the audio using the new method
+        transcription = transcribe_audio(file_path, model)
         # Print the transcribed text
         print(f"Transcription: {transcription}")
 
         # Send the transcription to the server
-        #send_transcription_to_server(transcription, bot_key)
-        print("Transcription sent to server.")  
+        # send_transcription_to_server(transcription, bot_key)
+        print("Transcription sent to server.")
+
 
     def detection_thread(mic_stream, mic_index, stop_event):
         """
@@ -366,7 +402,7 @@ def run_wakeword_detection():
         """
         nonlocal last_notification_time
         wakeword_detected = False
-
+        model = initialize_model()
         print("\n\nListening for wakewords...\n")
         while not stop_event.is_set():
             try:
@@ -401,7 +437,7 @@ def run_wakeword_detection():
 
                     if bot_key:
                         # Start recording using the new method
-                        threading.Thread(target=record_audio, args=('input.wav', mic_index, bot_key)).start()
+                        threading.Thread(target=record_audio, args=('input.wav', mic_index, bot_key, model)).start()
 
                 # Reset wakeword_detected after cooldown
                 if (time.time() - last_notification_time) >= COOLDOWN:
@@ -477,6 +513,7 @@ def extract_public_url_from_conf(file_path):
 
 if __name__ == '__main__':
     # Start the tunnel using curl and wg-quick
+    
     tunnel_command = "curl https://tunnel.pyjam.as/5000 > tunnel.conf && wg-quick up ./tunnel.conf"
     subprocess.run(tunnel_command, shell=True)
     time.sleep(2)  # Give the tunnel some time to establish the connection
