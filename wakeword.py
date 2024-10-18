@@ -15,7 +15,7 @@ import warnings
 
 from faster_whisper import WhisperModel
 
-def run_wakeword_detection():
+def run_wakeword_detection(SERVER_TOKEN):
     
     openwakeword.utils.download_models()
 
@@ -39,8 +39,7 @@ def run_wakeword_detection():
     PAUSE_THRESHOLD = 2  # Seconds of silence before considering speech complete
 
     # Server configuration
-    SERVER_URL = "https://rolling-essa-enpoi-12c37b5e.koyeb.app/send"
-    SERVER_TOKEN = "Denemeler123."
+    SERVER_URL = "https://rolling-essa-enpoi-12c37b5e.koyeb.app/send_message"
 
     # Other parameters
     COOLDOWN = 1  # Seconds to wait before detecting another wake word

@@ -21,15 +21,11 @@ encryption_key_cli = os.environ.get('ENCRYPTION_KEY_CLI').encode()
 encryption_key_config = os.environ.get('ENCRYPTION_KEY_CONFIG').encode()
 encryption_key_adminsdk = os.environ.get('ENCRYPTION_KEY_ADMINSDK').encode()
 # Token for basic authentication
-AUTH_TOKEN = os.environ.get('AUTH_TOKEN', 'Denemeler123.')  # Replace with your actual token
-
-
+AUTH_TOKEN = os.environ.get('AUTH_TOKEN')  # Replace with your actual token
 
 decrypt_client_secret(encryption_key_cli)
 decrypt_firebase_config(encryption_key_config)
 decrypt_adminsdk(encryption_key_adminsdk)
-
-
 
 # Load Firebase configuration from JSON file
 with open('firebase_config.json') as config_file:
@@ -43,7 +39,6 @@ app = Flask(__name__)
 @app.route('/')
 def home():
     return "Server running"
-
 
 # Predefined apps that can be opened via the "start" command
 APP_COMMANDS = {
@@ -220,8 +215,8 @@ if __name__ == '__main__':
         threading.Thread(target=app.run, kwargs={'port':5000, 'host':'0.0.0.0'}).start()
         
         # Start the wakeword detection code in a separate thread
-        threading.Thread(target=run_wakeword_detection).start()
-        
+        threading.Thread(target=run_wakeword_detection, args=(AUTH_TOKEN,)).start()     
+
         # Keep the main thread alive
         while True:
             time.sleep(1)
