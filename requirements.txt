@@ -2,7 +2,6 @@ firebase-admin
 flask
 pynput==1.6.8
 pyautogui
-dotenv
 python-dotenv
 faster-whisper
 # conda install anaconda::pyaudio
