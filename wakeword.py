@@ -20,7 +20,7 @@ def run_wakeword_detection(SERVER_TOKEN):
     openwakeword.utils.download_models()
 
     # Microphone settings
-    MIC_NAME = "default"  # Name of the microphone to use
+    MIC_NAME = "Microsoft Sound Mapper - Input"  # Name of the microphone to use
 
     # Audio parameters for wake word detection
     FORMAT = pyaudio.paInt16
@@ -117,8 +117,8 @@ def run_wakeword_detection(SERVER_TOKEN):
             model_size = "deepdml/faster-whisper-large-v3-turbo-ct2"
             compute_type = "float16"
         else:
-            model_size = "base"
-            compute_type = "float16"
+            model_size = "small" #change to "small" later
+            compute_type = "int8"
 
         model = WhisperModel(model_size, device=device, compute_type=compute_type)
         return model
@@ -126,6 +126,10 @@ def run_wakeword_detection(SERVER_TOKEN):
     def transcribe_audio(audio_file_path, model):
         segments, info = model.transcribe(audio=audio_file_path, vad_filter=True,
                                         vad_parameters=dict(min_silence_duration_ms=500))
+
+        if not segments:
+            print("No audio detected or empty sequence.")
+            return None
 
         print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
 
@@ -157,11 +161,12 @@ def run_wakeword_detection(SERVER_TOKEN):
 
         # Transcribe the audio using the new method
         transcription = transcribe_audio(file_path, model)
-        # Print the transcribed text
-        print(f"Transcription: {transcription} sent to server.")
+        if transcription:
+            # Print the transcribed text
+            print(f"Transcription: {transcription} sent to server.")
 
-        # Send the transcription to the server
-        send_transcription_to_server(transcription, bot_key)
+            # Send the transcription to the server
+            send_transcription_to_server(transcription, bot_key)
 
     def detection_thread(mic_stream, mic_index, stop_event):
         """
