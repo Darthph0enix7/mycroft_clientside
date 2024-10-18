@@ -5,59 +5,29 @@ import json
 import time
 import socket
 import subprocess
-import requests
 import firebase_admin
-from firebase_admin import credentials, db
+from firebase_admin import credentials
 from flask import Flask, request, jsonify, send_from_directory
 from pynput import keyboard, mouse
-import pyautogui  # For taking screenshots
-import platform
-import warnings
-from cryptography.fernet import Fernet
+import pyautogui
 from dotenv import load_dotenv
 
-from faster_whisper import WhisperModel
-
+from firebase import decrypt_client_secret, decrypt_firebase_config, decrypt_adminsdk, update_public_url, update_active_device, authenticate_request
+from wakeword import run_wakeword_detection
 
 load_dotenv()
 
 encryption_key_cli = os.environ.get('ENCRYPTION_KEY_CLI').encode()
 encryption_key_config = os.environ.get('ENCRYPTION_KEY_CONFIG').encode()
 encryption_key_adminsdk = os.environ.get('ENCRYPTION_KEY_ADMINSDK').encode()
+# Token for basic authentication
+AUTH_TOKEN = os.environ.get('AUTH_TOKEN', 'Denemeler123.')  # Replace with your actual token
 
-def decrypt_client_secret():
-    with open("service_account.json.encrypted", "rb") as encrypted_file:
-        encrypted_data = encrypted_file.read()
 
-    fernet = Fernet(encryption_key_cli)
-    decrypted_data = fernet.decrypt(encrypted_data)
 
-    with open("service_account.json", "wb") as decrypted_file:
-        decrypted_file.write(decrypted_data)
-
-def decrypt_firebase_config():
-    with open("firebase_config.json.encrypted", "rb") as encrypted_file:
-        encrypted_data = encrypted_file.read()
-
-    fernet = Fernet(encryption_key_config)
-    decrypted_data = fernet.decrypt(encrypted_data)
-
-    with open("firebase_config.json", "wb") as decrypted_file:
-        decrypted_file.write(decrypted_data)
-
-def decrypt_adminsdk():
-    with open("firebase_adminsdk.json.encrypted", "rb") as encrypted_file:
-        encrypted_data = encrypted_file.read()
-
-    fernet = Fernet(encryption_key_adminsdk)
-    decrypted_data = fernet.decrypt(encrypted_data)
-
-    with open("firebase_adminsdk.json", "wb") as decrypted_file:
-        decrypted_file.write(decrypted_data)
-
-decrypt_client_secret()
-decrypt_firebase_config()
-decrypt_adminsdk()
+decrypt_client_secret(encryption_key_cli)
+decrypt_firebase_config(encryption_key_config)
+decrypt_adminsdk(encryption_key_adminsdk)
 
 
 
@@ -74,35 +44,6 @@ app = Flask(__name__)
 def home():
     return "Server running"
 
-# Firebase Realtime Database interaction
-class RealtimeDB:
-    def __init__(self):
-        self.db = db.reference()
-
-    def write_data(self, path, data):
-        try:
-            ref = self.db.child(path)
-            ref.set(data)
-            print(f'Data written to Firebase: {path}')
-        except Exception as e:
-            print(f'Error writing to Firebase: {e}')
-
-def update_public_url(device_name, public_url):
-    db_instance = RealtimeDB()
-    db_instance.write_data(f'devices/{device_name}/public_url', public_url)
-
-def update_active_device(device_name):
-    db_instance = RealtimeDB()
-    db_instance.write_data('active_device', device_name)
-
-# Token for basic authentication
-AUTH_TOKEN = os.environ.get('AUTH_TOKEN', 'Denemeler123.')  # Replace with your actual token
-
-def authenticate_request():
-    token = request.headers.get('Authorization') or request.json.get('token')
-    if token != AUTH_TOKEN:
-        return jsonify({"error": "Unauthorized"}), 401
-    return None
 
 # Predefined apps that can be opened via the "start" command
 APP_COMMANDS = {
@@ -126,8 +67,19 @@ def take_screenshot():
     screenshot_path = os.path.join(os.getcwd(), 'screenshot.png')
     screenshot = pyautogui.screenshot()
     
+    # Get the original dimensions of the screenshot
+    original_width, original_height = screenshot.size
+    
+    # Calculate the scaling factor to maintain the aspect ratio
+    max_resolution = 1080
+    scaling_factor = min(max_resolution / original_width, max_resolution / original_height)
+    
+    # Calculate the new dimensions while maintaining the aspect ratio
+    new_width = int(original_width * scaling_factor)
+    new_height = int(original_height * scaling_factor)
+    
     # Resize the screenshot
-    resized_screenshot = screenshot.resize((800, 600))  # Resize to 800x600 resolution
+    resized_screenshot = screenshot.resize((new_width, new_height))
     resized_screenshot.save(screenshot_path)
     
     # Return the screenshot path
@@ -140,7 +92,7 @@ def get_screenshot():
 
 @app.route('/open_app', methods=['POST'])
 def open_app():
-    auth_response = authenticate_request()
+    auth_response = authenticate_request(AUTH_TOKEN)
     if auth_response:
         return auth_response
 
@@ -165,7 +117,7 @@ def open_app():
 
 @app.route('/send_command', methods=['POST'])
 def send_command():
-    auth_response = authenticate_request()
+    auth_response = authenticate_request(AUTH_TOKEN)
     if auth_response:
         return auth_response
 
@@ -181,7 +133,7 @@ def send_command():
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
-    auth_response = authenticate_request()
+    auth_response = authenticate_request(AUTH_TOKEN)
     if auth_response:
         return auth_response
 
@@ -192,7 +144,7 @@ def upload_file():
 
 @app.route('/download_file', methods=['GET'])
 def download_file():
-    auth_response = authenticate_request()
+    auth_response = authenticate_request(AUTH_TOKEN)
     if auth_response:
         return auth_response
 
@@ -232,279 +184,6 @@ def monitor_activity():
             activity_detected = False
         time.sleep(2)
 
-def run_wakeword_detection():
-    import time
-    import threading
-    import platform
-    if platform.system() == "Windows":
-        import pyaudiowpatch as pyaudio
-    else:
-        import pyaudio
-    import numpy as np
-    import openwakeword
-    from openwakeword.model import Model
-    from plyer import notification
-    import requests
-    import speech_recognition as sr
-    import warnings
-    
-    openwakeword.utils.download_models()
-
-    # Microphone settings
-    MIC_NAME = "default"  # Name of the microphone to use
-
-    # Audio parameters for wake word detection
-    FORMAT = pyaudio.paInt16
-    CHANNELS = 1
-    RATE = 16000
-    CHUNK_DURATION_MS = 30  # Duration of a chunk in milliseconds
-    CHUNK_SIZE = int(RATE * CHUNK_DURATION_MS / 1000)  # Number of samples per chunk
-
-    # Wake word detection parameters
-    THRESHOLD = 0.1  # Confidence threshold for wake word detection
-    INFERENCE_FRAMEWORK = 'onnx'
-    MODEL_PATHS = ['nexus.onnx', 'jarvis.onnx', 'mycroft.onnx']
-
-    # Recording parameters
-    ENERGY_THRESHOLD = 2000  # Energy level for speech detection
-    PAUSE_THRESHOLD = 2  # Seconds of silence before considering speech complete
-
-    # Server configuration
-    SERVER_URL = "https://rolling-essa-enpoi-12c37b5e.koyeb.app/send"
-    SERVER_TOKEN = "Denemeler123."
-
-    # Other parameters
-    COOLDOWN = 1  # Seconds to wait before detecting another wake word
-
-
-    def get_device_index(audio, device_name):
-        """
-        Get the index of the microphone device based on its name.
-        """
-        device_count = audio.get_device_count()
-        for i in range(device_count):
-            device_info = audio.get_device_info_by_index(i)
-            if device_name in device_info['name']:
-                return device_info['index']
-        return None
-
-    def initialize_mic_stream(audio, mic_index, format, channels, rate, chunk):
-        """
-        Initialize the microphone stream.
-        """
-        try:
-            mic_stream = audio.open(format=format, channels=channels, rate=rate, input=True,
-                                    input_device_index=mic_index, frames_per_buffer=chunk)
-            return mic_stream
-        except Exception as e:
-            print(f"Mic {mic_index} not available. Waiting for it to be connected...")
-            return None  # Return None if mic cannot be initialized
-
-    def send_transcription_to_server(transcription, bot_key):
-        """
-        Send the transcription to the server.
-        """
-        if not transcription or len(transcription.strip()) <= 1:
-            print("Transcription is empty or invalid. Not sending to server.")
-            return
-
-        # Print the transcribed text that is being sent
-        print(f"Sending transcription to assistant: {transcription.strip()}")
-
-        headers = {
-            "Authorization": SERVER_TOKEN,
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "message": transcription.strip(),
-            "bot_key": bot_key
-        }
-
-        try:
-            response = requests.post(SERVER_URL, json=payload, headers=headers)
-            if response.status_code == 200:
-                print(f"Successfully sent transcription to {bot_key}.")
-            else:
-                print(f"Failed to send transcription to {bot_key}. Server responded with: {response.status_code} - {response.text}")
-        except Exception as e:
-            print(f"Error sending transcription to server for {bot_key}: {e}")
-
-    def check_torch_and_gpu():
-        try:
-            import torch
-            if torch.cuda.is_available():
-                print("CUDA is available.")
-                return True, "cuda"
-            else:
-                print("CUDA is not available.")
-                return True, "cpu"
-        except ImportError:
-            return False, "cpu"
-
-    def initialize_model():
-        torch_installed, device = check_torch_and_gpu()
-        print(f"Using device: {device}")
-        if torch_installed and device == "cuda":
-            model_size = "deepdml/faster-whisper-large-v3-turbo-ct2"
-            compute_type = "float16"
-        else:
-            model_size = "base"
-            compute_type = "int8"
-
-        model = WhisperModel(model_size, device=device, compute_type=compute_type)
-        return model
-
-    def transcribe_audio(audio_file_path, model):
-        segments, info = model.transcribe(audio=audio_file_path, vad_filter=True,
-                                        vad_parameters=dict(min_silence_duration_ms=500))
-
-        print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
-
-        transcription = ""
-        for segment in segments:
-            transcription += "[%.2fs -> %.2fs] %s\n" % (segment.start, segment.end, segment.text)
-
-        return transcription
-
-    def record_audio(file_path, mic_index, bot_key, model):
-        """
-        Record audio from the microphone using speech_recognition.
-        """
-        recognizer = sr.Recognizer()
-        recognizer.energy_threshold = ENERGY_THRESHOLD
-        recognizer.pause_threshold = PAUSE_THRESHOLD
-
-        # Use the same mic as in wake word detection
-        with sr.Microphone(device_index=mic_index) as source:
-            print("Adjusting for ambient noise...")
-            recognizer.adjust_for_ambient_noise(source, duration=0.7)
-            print("Recording...")
-            audio_data = recognizer.listen(source)
-            print("Recording complete.")
-
-            # Save the audio data to a WAV file
-            with open(file_path, "wb") as f:
-                f.write(audio_data.get_wav_data())
-
-        # Transcribe the audio using the new method
-        transcription = transcribe_audio(file_path, model)
-        # Print the transcribed text
-        print(f"Transcription: {transcription}")
-
-        # Send the transcription to the server
-        # send_transcription_to_server(transcription, bot_key)
-        print("Transcription sent to server.")
-
-
-    def detection_thread(mic_stream, mic_index, stop_event):
-        """
-        Thread function for wake word detection.
-        """
-        nonlocal last_notification_time
-        wakeword_detected = False
-        model = initialize_model()
-        print("\n\nListening for wakewords...\n")
-        while not stop_event.is_set():
-            try:
-                mic_audio = np.frombuffer(mic_stream.read(CHUNK_SIZE), dtype=np.int16)
-
-                # Feed to openWakeWord model
-                prediction = owwModel.predict(mic_audio)
-
-                # Check for any wakeword detection
-                detected_models = [mdl for mdl in prediction.keys() if prediction[mdl] >= THRESHOLD]
-                if detected_models and not wakeword_detected and (time.time() - last_notification_time) >= COOLDOWN:
-                    last_notification_time = time.time()
-                    wakeword_detected = True  # Prevent multiple triggers
-
-                    # Use the first detected model
-                    mdl = detected_models[0]
-
-                    notification.notify(
-                        title='Wake Word Detected',
-                        message=f'Detected activation from \"{mdl}\" model!',
-                        app_name='WakeWordService'
-                    )
-                    print(f'Detected activation from \"{mdl}\" model!')
-
-                    # Determine bot_key based on detected model
-                    if mdl == 'mycroft':
-                        bot_key = 'mycroft'
-                    elif mdl == 'jarvis':
-                        bot_key = 'jarvis'
-                    elif mdl == 'nexus':
-                        bot_key = 'nexus'
-                    else:
-                        bot_key = None
-
-                    if bot_key:
-                        # Start recording using the new method
-                        threading.Thread(target=record_audio, args=('input.wav', mic_index, bot_key, model)).start()
-
-                # Reset wakeword_detected after cooldown
-                if (time.time() - last_notification_time) >= COOLDOWN:
-                    wakeword_detected = False
-
-            except Exception as e:
-                print(f"An error occurred during audio processing: {e}")
-                # Assume mic is disconnected
-                stop_event.set()
-                break
-
-    last_notification_time = 0
-
-    owwModel = Model(
-        wakeword_models=MODEL_PATHS,
-        inference_framework=INFERENCE_FRAMEWORK
-    )
-    def list_available_mics():
-        audio = pyaudio.PyAudio()
-        device_count = audio.get_device_count()
-        print("Available microphones:")
-        for i in range(device_count):
-            device_info = audio.get_device_info_by_index(i)
-            print(f"Index {i}: {device_info['name']}")
-        audio.terminate()
-    list_available_mics()
-
-    # Existing logic to select the microphone based on MIC_NAME
-    while True:
-        audio = pyaudio.PyAudio()
-
-        mic_index = get_device_index(audio, MIC_NAME)
-        if mic_index is None:
-            print(f"Microphone '{MIC_NAME}' not found. Waiting for it to be connected...")
-            while mic_index is None:
-                time.sleep(5)
-                audio.terminate()
-                audio = pyaudio.PyAudio()
-                mic_index = get_device_index(audio, MIC_NAME)
-
-        mic_stream = initialize_mic_stream(audio, mic_index, FORMAT, CHANNELS, RATE, CHUNK_SIZE)
-        if mic_stream is None:
-            # Could not initialize mic stream, go back to waiting
-            audio.terminate()
-            continue
-
-        # Create an event to control the detection thread
-        stop_event = threading.Event()
-
-        # Start the detection thread
-        detection_thread_instance = threading.Thread(target=detection_thread, args=(mic_stream, mic_index, stop_event))
-        detection_thread_instance.start()
-
-        # Wait for the detection thread to finish
-        detection_thread_instance.join()
-
-        # When the detection thread finishes, it means the mic was disconnected
-        print("Microphone disconnected. Stopping wake word detection.")
-        mic_stream.close()
-        audio.terminate()
-        print("Returning to waiting for microphone to be connected...")
-
-        # Wait a bit before retrying
-        time.sleep(5)
 
 def extract_public_url_from_conf(file_path):
     with open(file_path, 'r') as file:
