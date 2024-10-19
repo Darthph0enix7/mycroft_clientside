@@ -189,7 +189,7 @@ if __name__ == '__main__':
     ngrok.set_auth_token(os.environ['NGROK_AUTHTOKEN'])
 
     # Start an Ngrok tunnel to your local Flask app (running on port 8000)
-    tunnel = ngrok.connect(8000)
+    tunnel = ngrok.connect(7888)
     public_url = tunnel.public_url
 
     # Print the public URL for the tunnel
@@ -202,7 +202,7 @@ if __name__ == '__main__':
 
     globals()['public_url'] = public_url
 
-    threading.Thread(target=app.run, kwargs={'port': 8000, 'host': '0.0.0.0'}).start()
+    threading.Thread(target=app.run, kwargs={'port': 7888, 'host': '0.0.0.0'}).start()
 
     threading.Thread(target=run_wakeword_detection, args=(AUTH_TOKEN,)).start()
 

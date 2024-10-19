@@ -8,3 +8,5 @@ faster-whisper
 openwakeword
 plyer
 SpeechRecognition
+ngrok
+pyngrok
