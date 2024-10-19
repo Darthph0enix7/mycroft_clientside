@@ -2,7 +2,7 @@ import time
 import threading
 import platform
 if platform.system() == "Windows":
-    import pyaudiowpatch as pyaudio
+    import pyaudiowpatch as pyaudio # type: ignore
 else:
     import pyaudio
 import numpy as np
@@ -11,7 +11,6 @@ from openwakeword.model import Model
 from plyer import notification
 import requests
 import speech_recognition as sr
-import warnings
 
 from faster_whisper import WhisperModel
 

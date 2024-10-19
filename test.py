@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 import requests
 import os
-import os
 from pyngrok import ngrok
 
 # Set the Ngrok auth token

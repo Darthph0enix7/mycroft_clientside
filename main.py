@@ -1,5 +1,4 @@
 import os
-import re
 import threading
 import json
 import time
@@ -12,8 +11,6 @@ from flask import Flask, request, jsonify, send_from_directory
 from pynput import keyboard, mouse
 import pyautogui
 from dotenv import load_dotenv
-import ctypes
-import sys
 from pyngrok import ngrok
 
 from firebase import decrypt_client_secret, decrypt_firebase_config, decrypt_adminsdk, update_public_url, update_active_device, authenticate_request
