@@ -29,7 +29,7 @@ def run_wakeword_detection(SERVER_TOKEN):
     CHUNK_SIZE = int(RATE * CHUNK_DURATION_MS / 1000)  # Number of samples per chunk
 
     # Wake word detection parameters
-    THRESHOLD = 0.2  # Confidence threshold for wake word detection
+    THRESHOLD = 0.3  # Confidence threshold for wake word detection
     INFERENCE_FRAMEWORK = 'onnx'
     MODEL_PATHS = ['nexus.onnx', 'jarvis.onnx', 'mycroft.onnx']
 

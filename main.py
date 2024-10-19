@@ -41,17 +41,6 @@ app = Flask(__name__)
 def home():
     return "Server running"
 
-# Predefined apps that can be opened via the "start" command
-APP_COMMANDS = {
-    "Spotify": "start spotify:",
-    "WhatsApp": "start whatsapp:",
-    "Onenote": "start OneNote:",
-    "Opera": "start Opera Browser:",
-    "Discord": "start discord:",
-    "Epic Games": "start epicgameslauncher:",
-    "Steam": "start steam:",
-    "Elden Ring": "start steam://rungameid/1245620"  # Example Steam game ID for Elden Ring
-}
 
 # Helper function to resolve paths with environment variables like %ProgramFiles%
 def resolve_path(path):
@@ -86,6 +75,14 @@ def get_screenshot():
     # Serve the screenshot file
     return send_from_directory(directory=os.getcwd(), path='screenshot.png')
 
+
+# Load app commands from a JSON file
+def load_app_commands():
+    with open('app_commands.json', 'r') as json_file:
+        return json.load(json_file)
+
+APP_COMMANDS = load_app_commands()
+
 @app.route('/open_app', methods=['POST'])
 def open_app():
     auth_response = authenticate_request(AUTH_TOKEN)
@@ -95,21 +92,39 @@ def open_app():
     data = request.json
     app_name = data.get("app_name")
 
+    print(f"Received request to open app: {app_name}")
+
     if not app_name or app_name not in APP_COMMANDS:
+        print("Invalid app name provided.")
         return jsonify({"error": "Invalid app name provided."}), 400
 
-    try:
-        # Resolve the path for the app
-        command = APP_COMMANDS[app_name]
-        resolved_command = resolve_path(command)
-        
-        # Use subprocess.Popen to open the app in the background (non-blocking)
-        process = subprocess.Popen(resolved_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Detect the operating system
+    current_os = platform.system()
+    print(f"Detected operating system: {current_os}")
+    
+    # Get the command for the app based on the current OS
+    command = APP_COMMANDS[app_name].get(current_os)
+    print(f"Command to run: {command}")
 
-        return jsonify({"status": f"Successfully opened {app_name}."}), 200
+    if not command:
+        print(f"{app_name} is not supported on {current_os}.")
+        return jsonify({"error": f"{app_name} is not supported on {current_os}."}), 400
+
+    try:
+        # Use subprocess.Popen to open the app in the background (non-blocking)
+        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+
+        print(f"Command stdout: {stdout}")
+        print(f"Command stderr: {stderr}")
+
+        return jsonify({"status": f"Successfully opened {app_name} on {current_os}."}), 200
     except Exception as e:
         # Capture any error details if the process fails to start
+        print(f"Failed to open {app_name}. Error: {str(e)}")
         return jsonify({"error": f"Failed to open {app_name}. Error: {str(e)}"}), 500
+
+
 
 @app.route('/send_command', methods=['POST'])
 def send_command():

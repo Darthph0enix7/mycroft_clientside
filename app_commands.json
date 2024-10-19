@@ -1,0 +1,34 @@
+{
+    "Spotify": {
+        "Windows": "start spotify:",
+        "Linux": "spotify"
+    },
+    "WhatsApp": {
+        "Windows": "start whatsapp:",
+        "Linux": "whatsdesk"
+    },
+    "Onenote": {
+        "Windows": "start OneNote:",
+        "Linux": null
+    },
+    "Opera": {
+        "Windows": "start Opera Browser:",
+        "Linux": "opera"
+    },
+    "Discord": {
+        "Windows": "start discord:",
+        "Linux": "discord"
+    },
+    "Epic Games": {
+        "Windows": "start epicgameslauncher:",
+        "Linux": null
+    },
+    "Steam": {
+        "Windows": "start steam:",
+        "Linux": "steam"
+    },
+    "Elden Ring": {
+        "Windows": "start steam://rungameid/1245620",
+        "Linux": "steam steam://rungameid/1245620"
+    }
+}
