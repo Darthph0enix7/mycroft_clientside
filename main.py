@@ -4,6 +4,7 @@ import threading
 import json
 import time
 import socket
+import platform
 import subprocess
 import firebase_admin
 from firebase_admin import credentials
@@ -11,6 +12,9 @@ from flask import Flask, request, jsonify, send_from_directory
 from pynput import keyboard, mouse
 import pyautogui
 from dotenv import load_dotenv
+import ctypes
+import sys
+from pyngrok import ngrok
 
 from firebase import decrypt_client_secret, decrypt_firebase_config, decrypt_adminsdk, update_public_url, update_active_device, authenticate_request
 from wakeword import run_wakeword_detection
@@ -179,46 +183,30 @@ def monitor_activity():
             activity_detected = False
         time.sleep(2)
 
-
-def extract_public_url_from_conf(file_path):
-    with open(file_path, 'r') as file:
-        content = file.read()
-        match = re.search(r'You can now access http://0.0.0.0:5000 on (https://\S+)', content)
-        if match:
-            return match.group(1)
-    return None
-
 if __name__ == '__main__':
-    # Start the tunnel using curl and wg-quick
-    
-    tunnel_command = "curl https://tunnel.pyjam.as/5000 > tunnel.conf && wg-quick up ./tunnel.conf"
-    subprocess.run(tunnel_command, shell=True)
-    time.sleep(2)  # Give the tunnel some time to establish the connection
+    load_dotenv()
+    # Authenticate using the token from the environment variable
+    ngrok.set_auth_token(os.environ['NGROK_AUTHTOKEN'])
 
-    # Extract the public URL from the tunnel.conf file
-    public_url = extract_public_url_from_conf('tunnel.conf')
+    # Start an Ngrok tunnel to your local Flask app (running on port 8000)
+    tunnel = ngrok.connect(8000)
+    public_url = tunnel.public_url
 
-    if public_url:
-        print(f"Ingress established at {public_url}")
-        
-        # Update Firebase with the public URL
-        device_name = socket.gethostname()
-        update_public_url(device_name, public_url)
-        
-        # Run the monitor_activity function in a separate thread
-        threading.Thread(target=monitor_activity).start()
-        
-        # Set public_url as a global variable
-        globals()['public_url'] = public_url
-        
-        # Run the Flask app in a separate thread
-        threading.Thread(target=app.run, kwargs={'port':5000, 'host':'0.0.0.0'}).start()
-        
-        # Start the wakeword detection code in a separate thread
-        threading.Thread(target=run_wakeword_detection, args=(AUTH_TOKEN,)).start()     
+    # Print the public URL for the tunnel
+    print(f"Ngrok Tunnel URL: {public_url}")
 
-        # Keep the main thread alive
-        while True:
-            time.sleep(1)
-    else:
-        print("Failed to establish tunnel connection")
+    device_name = socket.gethostname()
+    update_public_url(device_name, public_url)
+
+    threading.Thread(target=monitor_activity).start()
+
+    globals()['public_url'] = public_url
+
+    threading.Thread(target=app.run, kwargs={'port': 8000, 'host': '0.0.0.0'}).start()
+
+    threading.Thread(target=run_wakeword_detection, args=(AUTH_TOKEN,)).start()
+
+    while True:
+        time.sleep(1)
+else:
+    print("Failed to establish tunnel connection")
