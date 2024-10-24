@@ -12,14 +12,14 @@ def main():
     current_arch = platform.machine().lower()
     
     if current_os == 'windows':
-        # run_script('windows_script.py')
+        run_script('windows_script.py')
         print('Would run: windows_script.py')
     elif current_os == 'linux':
         if 'arm' in current_arch or 'aarch' in current_arch:
-            # run_script('linux_arm_script.py')
+            run_script('linux_arm_script.py')
             print('Would run: linux_arm_script.py')
         elif 'x86_64' in current_arch:
-            # run_script('linux_x64_script.py')
+            run_script('linux_x64_script.py')
             print('Would run: linux_x64_script.py')
         else:
             print(f"Unsupported Linux architecture: {current_arch}")
