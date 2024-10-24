@@ -8,7 +8,6 @@ import subprocess
 import firebase_admin
 from firebase_admin import credentials
 from flask import Flask, request, jsonify, send_from_directory
-import pyautogui
 from dotenv import load_dotenv
 from pyngrok import ngrok
 
@@ -45,36 +44,6 @@ def home():
 # Helper function to resolve paths with environment variables like %ProgramFiles%
 def resolve_path(path):
     return os.path.expandvars(path)
-
-@app.route('/take_screenshot', methods=['GET'])
-def take_screenshot():
-    # Take a screenshot
-    screenshot_path = os.path.join(os.getcwd(), 'screenshot.png')
-    screenshot = pyautogui.screenshot()
-    
-    # Get the original dimensions of the screenshot
-    original_width, original_height = screenshot.size
-    
-    # Calculate the scaling factor to maintain the aspect ratio
-    max_resolution = 1080
-    scaling_factor = min(max_resolution / original_width, max_resolution / original_height)
-    
-    # Calculate the new dimensions while maintaining the aspect ratio
-    new_width = int(original_width * scaling_factor)
-    new_height = int(original_height * scaling_factor)
-    
-    # Resize the screenshot
-    resized_screenshot = screenshot.resize((new_width, new_height))
-    resized_screenshot.save(screenshot_path)
-    
-    # Return the screenshot path
-    return jsonify({"image_url": f"{public_url}/screenshot"})
-
-@app.route('/screenshot', methods=['GET'])
-def get_screenshot():
-    # Serve the screenshot file
-    return send_from_directory(directory=os.getcwd(), path='screenshot.png')
-
 
 # Load app commands from a JSON file
 def load_app_commands():
