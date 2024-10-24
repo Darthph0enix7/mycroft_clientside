@@ -5,6 +5,7 @@ import json
 from firebase import update_active_device, decrypt_client_secret, decrypt_firebase_config, decrypt_adminsdk
 from flask import Flask, request, jsonify, send_from_directory
 from dotenv import load_dotenv
+from evdev import InputDevice, categorize, ecodes
 
 load_dotenv()
 
@@ -32,67 +33,28 @@ last_activity_time = time.time()
 activity_detected = False
 device_name = socket.gethostname()
 
-try:
-    from kivy.app import App
-    from kivy.uix.button import Button
-    from kivy.uix.boxlayout import BoxLayout
-    from kivy.core.window import Window
-    from kivy.clock import Clock
+def monitor_activity_arm():
+    global last_activity_time, device_name, activity_detected
 
-    class ActivityMonitorApp(App):
-        def build(self):
-            layout = BoxLayout(orientation='vertical')
-            button = Button(text='Click me')
-            button.bind(on_press=self.on_button_press)
-            layout.add_widget(button)
+    # List all input devices
+    devices = [InputDevice(path) for path in os.listdir('/dev/input') if 'event' in path]
 
-            Window.bind(on_touch_down=self.on_touch_down)
-            Window.bind(on_touch_move=self.on_touch_move)
-            Window.bind(on_touch_up=self.on_touch_up)
+    while True:
+        for device in devices:
+            try:
+                for event in device.read_loop():
+                    if event.type == ecodes.EV_KEY or event.type == ecodes.EV_ABS:
+                        last_activity_time = time.time()
+                        activity_detected = True
+                        #print(f'Activity detected: {event.code}')
+            except OSError:
+                # Handle device read errors
+                pass
 
-            Clock.schedule_interval(self.check_activity, 2)
+        current_time = time.time()
+        if activity_detected and (current_time - last_activity_time) < 5:
+            update_active_device(device_name)
+            activity_detected = False
+        time.sleep(2)
 
-            return layout
-
-        def on_button_press(self, instance):
-            self.on_activity('button_press')
-
-        def on_touch_down(self, instance, touch):
-            self.on_activity('touch_down')
-
-        def on_touch_move(self, instance, touch):
-            self.on_activity('touch_move')
-
-        def on_touch_up(self, instance, touch):
-            self.on_activity('touch_up')
-
-        def on_activity(self, activity_type):
-            global last_activity_time, activity_detected
-            last_activity_time = time.time()
-            activity_detected = True
-            #print(f'Activity detected: {activity_type}')
-
-        def check_activity(self, dt):
-            global last_activity_time, activity_detected, device_name
-            current_time = time.time()
-            if activity_detected and (current_time - last_activity_time) < 5:
-                update_active_device(device_name)
-                activity_detected = False
-
-    ActivityMonitorApp().run()
-
-except (OSError, Exception) as e:
-    print(f"Error: {e}")
-    print("Kivy is not supported on this system or no graphical environment is available. Falling back to a basic activity monitor.")
-
-    def monitor_activity_arm():
-        global last_activity_time, device_name, activity_detected
-
-        while True:
-            current_time = time.time()
-            if activity_detected and (current_time - last_activity_time) < 5:
-                update_active_device(device_name)
-                activity_detected = False
-            time.sleep(2)
-
-    monitor_activity_arm()
+monitor_activity_arm()
