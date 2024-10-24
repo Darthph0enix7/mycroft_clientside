@@ -177,8 +177,6 @@ if __name__ == '__main__':
     device_name = socket.gethostname()
     update_public_url(device_name, public_url)
 
-    threading.Thread(target=monitor_activity_arm).start()
-
     globals()['public_url'] = public_url
 
     threading.Thread(target=app.run, kwargs={'port': 7888, 'host': '0.0.0.0'}).start()
