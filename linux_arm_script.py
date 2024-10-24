@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 from pyngrok import ngrok
 
 from firebase import decrypt_client_secret, decrypt_firebase_config, decrypt_adminsdk, update_public_url, update_active_device, authenticate_request
-from monitor_activity import monitor_activity_arm
 from wakeword import run_wakeword_detection
 
 load_dotenv()
