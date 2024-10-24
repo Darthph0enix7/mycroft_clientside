@@ -43,7 +43,16 @@ def run_wakeword_detection(SERVER_TOKEN):
     # Other parameters
     COOLDOWN = 1  # Seconds to wait before detecting another wake word
 
-
+    def list_available_mics():
+        audio = pyaudio.PyAudio()
+        device_count = audio.get_device_count()
+        print("Available microphones:")
+        for i in range(device_count):
+            device_info = audio.get_device_info_by_index(i)
+            print(f"Index {i}: {device_info['name']}")
+        audio.terminate()
+    list_available_mics()
+    
     def get_device_index(audio, device_name):
         """
         Get the index of the microphone device based on its name.
@@ -228,15 +237,7 @@ def run_wakeword_detection(SERVER_TOKEN):
         wakeword_models=MODEL_PATHS,
         inference_framework=INFERENCE_FRAMEWORK
     )
-    def list_available_mics():
-        audio = pyaudio.PyAudio()
-        device_count = audio.get_device_count()
-        print("Available microphones:")
-        for i in range(device_count):
-            device_info = audio.get_device_info_by_index(i)
-            print(f"Index {i}: {device_info['name']}")
-        audio.terminate()
-    list_available_mics()
+
 
     # Existing logic to select the microphone based on MIC_NAME
     while True:
