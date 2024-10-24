@@ -10,3 +10,4 @@ plyer
 SpeechRecognition
 ngrok
 pyngrok
+kivy
