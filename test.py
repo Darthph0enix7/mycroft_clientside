@@ -81,9 +81,9 @@ try:
 
     ActivityMonitorApp().run()
 
-except OSError as e:
+except (OSError, Exception) as e:
     print(f"Error: {e}")
-    print("Kivy is not supported on this system. Falling back to a basic activity monitor.")
+    print("Kivy is not supported on this system or no graphical environment is available. Falling back to a basic activity monitor.")
 
     def monitor_activity_arm():
         global last_activity_time, device_name, activity_detected
