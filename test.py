@@ -1,41 +1,83 @@
-from flask import Flask, request, jsonify
-import requests
+import time
+import socket
+from kivy.app import App
+from kivy.uix.button import Button
+from kivy.uix.boxlayout import BoxLayout
+from kivy.core.window import Window
+from kivy.clock import Clock
+from firebase import update_active_device
+from firebase import decrypt_client_secret, decrypt_firebase_config, decrypt_adminsdk, update_public_url, update_active_device, authenticate_request
+from monitor_activity import monitor_activity
+from wakeword import run_wakeword_detection
+import firebase_admin
+from firebase_admin import credentials
+from flask import Flask, request, jsonify, send_from_directory
+from dotenv import load_dotenv
 import os
-from pyngrok import ngrok
 
-# Set the Ngrok auth token
-os.environ['NGROK_AUTHTOKEN'] = '2fonTlQbIR92QYauNONN23SHGgX_7FnioUn3T35dwAMgDWPQW'
+load_dotenv()
 
-# Authenticate using the token from the environment variable
-ngrok.set_auth_token(os.environ['NGROK_AUTHTOKEN'])
+encryption_key_cli = os.environ.get('ENCRYPTION_KEY_CLI').encode()
+encryption_key_config = os.environ.get('ENCRYPTION_KEY_CONFIG').encode()
+encryption_key_adminsdk = os.environ.get('ENCRYPTION_KEY_ADMINSDK').encode()
+# Token for basic authentication
+AUTH_TOKEN = os.environ.get('AUTH_TOKEN')  # Replace with your actual token
 
-# Start an Ngrok tunnel to your local Flask app (running on port 8000)
-public_url = ngrok.connect(8000)
+decrypt_client_secret(encryption_key_cli)
+decrypt_firebase_config(encryption_key_config)
+decrypt_adminsdk(encryption_key_adminsdk)
 
-# Print the public URL for the tunnel
-print(f"Ngrok Tunnel URL: {public_url}")
+# Load Firebase configuration from JSON file
+with open('firebase_config.json') as config_file:
+    firebase_config = json.load(config_file)
 
+cred = credentials.Certificate("firebase_adminsdk.json")
+firebase_admin.initialize_app(cred, firebase_config)
 
-app = Flask(__name__)
+global last_activity_time, device_name, activity_detected
 
-@app.route('/')
-def home():
-    return "Server is running on port 7860"
+last_activity_time = time.time()
+activity_detected = False
+device_name = socket.gethostname()
 
-@app.route('/test-request', methods=['GET'])
-def test_request():
-    public_url = request.args.get('url')
-    if not public_url:
-        return jsonify({"error": "No URL provided"}), 400
+class ActivityMonitorApp(App):
+    def build(self):
+        layout = BoxLayout(orientation='vertical')
+        button = Button(text='Click me')
+        button.bind(on_press=self.on_button_press)
+        layout.add_widget(button)
 
-    try:
-        response = requests.get(public_url)
-        if response.status_code == 200:
-            return "Server is running"
-        else:
-            return jsonify({"error": "Failed to reach the public URL"}), 500
-    except requests.RequestException as e:
-        return jsonify({"error": str(e)}), 500
+        Window.bind(on_touch_down=self.on_touch_down)
+        Window.bind(on_touch_move=self.on_touch_move)
+        Window.bind(on_touch_up=self.on_touch_up)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)  # Ensure to bind to 0.0.0.0
+        Clock.schedule_interval(self.check_activity, 2)
+
+        return layout
+
+    def on_button_press(self, instance):
+        self.on_activity('button_press')
+
+    def on_touch_down(self, instance, touch):
+        self.on_activity('touch_down')
+
+    def on_touch_move(self, instance, touch):
+        self.on_activity('touch_move')
+
+    def on_touch_up(self, instance, touch):
+        self.on_activity('touch_up')
+
+    def on_activity(self, activity_type):
+        global last_activity_time, activity_detected
+        last_activity_time = time.time()
+        activity_detected = True
+        #print(f'Activity detected: {activity_type}')
+
+    def check_activity(self, dt):
+        global last_activity_time, activity_detected, device_name
+        current_time = time.time()
+        if activity_detected and (current_time - last_activity_time) < 5:
+            update_active_device(device_name)
+            activity_detected = False
+
+ActivityMonitorApp().run()
